@@ -8,7 +8,9 @@
 #define WFS_MAGIC 0xdeadbeef
 
 // adding
+#ifndef S_IFDIR
 #define S_IFDIR 0x4000
+#endif
 
 struct wfs_sb {
     uint32_t magic;

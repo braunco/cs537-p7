@@ -1,4 +1,4 @@
-NAME = mount.wfs mkfs.wfs fsck.wfs
+NAME = mount.wfs mkfs.wfs fsck.wfs test_prebuilt_disk
 
 CC = gcc
 CFLAGS = -Wall -Werror -pedantic -std=gnu18
@@ -22,3 +22,6 @@ fsck.wfs:
 .PHONY: clean
 clean:
 	rm -rf $(NAME)
+
+test: mkfs.wfs mount.wfs
+	./tests/start.py
