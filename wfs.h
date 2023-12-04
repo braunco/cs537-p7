@@ -10,6 +10,7 @@
 // adding
 #ifndef S_IFDIR
 #define S_IFDIR 0x4000
+#define HARD_LINK 0x1
 #endif
 
 struct wfs_sb {

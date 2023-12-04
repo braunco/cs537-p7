@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
         .inode = {
             .inode_number = 0,  // root directory inode number
             .mode = S_IFDIR,
-            .links = 2
+            .links = HARD_LINK
         }
     };
 

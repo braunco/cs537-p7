@@ -17,6 +17,22 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
         // Fill in the stat structure with data from the inode
 
         // If file/directory not found, return -ENOENT
+        // Implement logic to find the inode for the given path
+        struct wfs_inode *inode = find_inode_by_path(path);
+        if (!inode) {
+            return -ENOENT;  // No such file or directory
+        }
+
+        // Fill in the stat structure
+        stbuf->st_mode = inode->mode;
+        stbuf->st_nlink = inode->links;
+        stbuf->st_size = inode->size;
+        stbuf->st_uid = inode->uid;
+        stbuf->st_gid = inode->gid;
+        stbuf->st_atime = inode->atime;
+        stbuf->st_mtime = inode->mtime;
+        stbuf->st_ctime = inode->ctime;
+        
     }
 
     return 0;
