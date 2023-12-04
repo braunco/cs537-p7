@@ -1,4 +1,4 @@
-NAME = mount.wfs mkfs.wfs fsck.wfs test_prebuilt_disk
+NAME = mount.wfs mkfs.wfs fsck.wfs test_prebuilt_disk disk
 
 CC = gcc
 CFLAGS = -Wall -Werror -pedantic -std=gnu18

@@ -101,6 +101,12 @@ static struct fuse_operations wfs_oper = {
 
 int main(int argc, char *argv[]) {
     // Process arguments and initialize your filesystem structure
+    //need to filter out disk path
 
-    return fuse_main(argc, argv, &wfs_oper, NULL);
+    char* disk_path = argv[argc - 2];
+    char* mount_point = argv[argc - 1];
+    argc -= 1;
+    argv[argc - 1] = mount_point;
+    int result = fuse_main(argc, argv, &wfs_oper, NULL);
+    return result;
 }
