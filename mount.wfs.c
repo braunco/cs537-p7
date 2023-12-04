@@ -3,7 +3,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include "wfs.h"
+
+/* HELPER FUNCTIONS */
+struct wfs_inode* find_inode_by_path(const char* path)
+{
+    return NULL;
+}
+
+/* END HELPER FUNCTIONS */
 
 // Define your filesystem operation functions here
 static int wfs_getattr(const char *path, struct stat *stbuf) {
