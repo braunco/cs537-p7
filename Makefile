@@ -24,4 +24,4 @@ clean:
 	rm -rf $(NAME)
 
 test: mkfs.wfs mount.wfs
-	./tests/start.py
+	~cs537-1/tests/P7/start.py
