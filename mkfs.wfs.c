@@ -1,34 +1,39 @@
+#include "wfs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "wfs.h"
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s disk_path\n", argv[0]);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
-    const char *disk_path = argv[1];
-    FILE *disk = fopen(disk_path, "w");
-    if (disk == NULL) {
+    FILE *disk = fopen(argv[1], "wb");
+    if (!disk) {
         perror("fopen");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
-    // Initialize the superblock
-    wfs_sb sb;
-    sb.magic = 0xdeadbeef;
-    sb.head = sizeof(wfs_sb);  // Assuming the first log entry starts right after the superblock
+    struct wfs_sb sb = {
+        .magic = WFS_MAGIC,
+        .head = sizeof(struct wfs_sb) + sizeof(struct wfs_log_entry)
+    };
 
-    if (fwrite(&sb, sizeof(wfs_sb), 1, disk) != 1) {
-        perror("fwrite");
-        fclose(disk);
-        exit(1);
-    }
+    // Write superblock
+    fwrite(&sb, sizeof(sb), 1, disk);
 
-    // Optionally zero out the rest of the disk file for a clean start
-    // ...
+    // Setup root directory inode
+    struct wfs_log_entry root_dir = {
+        .inode = {
+            .inode_number = 0,  // root directory inode number
+            .mode = S_IFDIR,
+            .links = 2
+        }
+    };
+
+    // Write root directory log entry
+    fwrite(&root_dir, sizeof(root_dir), 1, disk);
 
     fclose(disk);
     return 0;
