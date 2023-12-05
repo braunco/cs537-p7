@@ -7,16 +7,71 @@
 #include "wfs.h"
 
 /* HELPER FUNCTIONS */
-struct wfs_inode* find_inode_by_path(const char* path)
-{
-    return NULL;
+char* get_path_from_log_entry(const struct wfs_log_entry* entry) {
+    static char path[MAX_FILE_NAME_LEN + 2]; // +2 for '/' and null-terminator
+    if (entry->inode.inode_number == 0) {
+        // Root directory
+        strcpy(path, "/");
+    } else {
+        // File or directory directly under root
+        // Assuming 'data' contains the name directly for simplicity
+        snprintf(path, sizeof(path), "/%s", entry->data);
+    }
+    return path;
 }
+
+
+struct wfs_inode* find_inode_by_path(const char* path) {
+    // Open the disk image file
+    FILE *disk = fopen("/", "rb");
+    if (!disk) {
+        perror("Error opening disk image");
+        return NULL;
+    }
+
+    // Read the superblock to find the starting point of the log entries
+    struct wfs_sb sb;
+    if (fread(&sb, sizeof(sb), 1, disk) != 1) {
+        perror("Error reading superblock");
+        fclose(disk);
+        return NULL;
+    }
+
+    // Traverse the log entries to find the inode for the given path
+    fseek(disk, sizeof(struct wfs_sb), SEEK_SET); // Start at the beginning of the log
+    while (ftell(disk) < sb.head) {
+        struct wfs_log_entry entry;
+        if (fread(&entry, sizeof(entry), 1, disk) != 1) {
+            perror("Error reading log entry");
+            break; // or handle the error as needed
+        }
+
+        char *entry_path = get_path_from_log_entry(&entry); 
+        if (entry_path != NULL && strcmp(entry_path, path) == 0) {
+            struct wfs_inode* inode = malloc(sizeof(struct wfs_inode));
+            if (inode != NULL) {
+                *inode = entry.inode;
+            }
+            fclose(disk);
+            return inode; // return a dynamically allocated inode
+        }
+
+        // Move to the next log entry if this one doesn't match
+        // This may involve reading the size of the data part of the log entry
+        // and seeking forward in the file by that amount
+    }
+
+    fclose(disk);
+    return NULL; // Return NULL if the path's inode was not found
+}
+
 
 /* END HELPER FUNCTIONS */
 
 // Define your filesystem operation functions here
 static int wfs_getattr(const char *path, struct stat *stbuf) {
     memset(stbuf, 0, sizeof(struct stat));
+
 
     if (strcmp(path, "/") == 0) {
         stbuf->st_mode = S_IFDIR | 0755;
