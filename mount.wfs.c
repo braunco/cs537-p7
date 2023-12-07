@@ -4,77 +4,136 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/mman.h>
 #include "wfs.h"
 
+FILE *disk_image = NULL; // Global file descriptor for the disk image
+const char *disk_image_path;
+FILE * debug_log;
+void *mapped_disk_image = NULL; 
+size_t mapped_disk_image_size;
+
 /* HELPER FUNCTIONS */
-char* get_path_from_log_entry(const struct wfs_log_entry* entry) {
-    static char path[MAX_FILE_NAME_LEN + 2]; // +2 for '/' and null-terminator
-    if (entry->inode.inode_number == 0) {
-        // Root directory
-        strcpy(path, "/");
-    } else {
-        // File or directory directly under root
-        // Assuming 'data' contains the name directly for simplicity
-        snprintf(path, sizeof(path), "/%s", entry->data);
+
+
+struct wfs_log_entry* get_root_entry() {
+    char* currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+    struct wfs_log_entry* currLogEntry = (struct wfs_log_entry*)currAddr;
+    struct wfs_log_entry* actualRootEntry = NULL;
+    while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size) {
+        currLogEntry = (struct wfs_log_entry*)currAddr;
+
+        if(currLogEntry->inode.inode_number == 0 && currLogEntry->inode.mode == 0x41ed) {
+            actualRootEntry = currLogEntry;
+        }
+
+        currAddr += sizeof(struct wfs_inode) + currLogEntry->inode.size;
     }
-    return path;
+    return actualRootEntry;
+}
+
+struct wfs_log_entry* get_entry_from_number(int inode_number) {
+    struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
+    int head = sb->head;
+    char* currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+    struct wfs_log_entry* currLogEntry = (struct wfs_log_entry*)currAddr;
+    struct wfs_log_entry* actualInode = NULL;
+    while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size && currAddr - (char*)mapped_disk_image < head) {
+        currLogEntry = (struct wfs_log_entry*)currAddr;
+
+        if(currLogEntry->inode.inode_number == inode_number) {
+            actualInode = currLogEntry;
+        }
+
+        currAddr += sizeof(struct wfs_inode) + currLogEntry->inode.size;
+    }
+
+    return actualInode;
+}
+
+struct wfs_dentry* find_dentry(struct wfs_log_entry* entry, const char* name) {
+    int numDentries = entry->inode.size / sizeof(struct wfs_dentry);
+    if(numDentries == 0) return NULL; //return null if no entries, as cannot have file
+
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)entry->data;
+    for(int i=0; i<numDentries; i++) {
+        printf("\tGoing through dentry#%d\n", i);
+        printf("\tComparing %s with %s...\n", currDentry->name, name);
+        if(strcmp(currDentry->name, name) == 0) { //if this dentry matches path token we are looking for.
+            printf("\t\tMatched with inode #%d\n", get_entry_from_number(currDentry->inode_number)->inode.inode_number);
+            return currDentry;
+        }
+        currDentry++;
+    }
+    return NULL;
+}
+
+/* HELPER FUNCTIONS */
+struct wfs_inode* find_inode_by_path(const char* path)
+{
+    /*
+    breakdown path into string[] broken up by '/'
+    get root inode, iterate through all directory entries, searching for string[0]
+    repeat
+    */
+
+    //need to find newest root. iterate backwards
+    struct wfs_log_entry* currLogEntry = get_root_entry();
+
+    char pathCopy[strlen(path)];
+    strcpy(pathCopy, path);
+
+
+    char* token = strtok(pathCopy, "/");
+    while(token) {
+        printf("In while Loop!\n");
+        int numDentries = currLogEntry->inode.size / sizeof(struct wfs_dentry);
+        if(numDentries == 0) return NULL; //return null if no entries, as cannot have file
+
+        //struct wfs_dentry* currDentry = (struct wfs_dentry*)actualRootEntry->data;
+        struct wfs_dentry* currDentry = find_dentry(currLogEntry, token);
+        if(currDentry == NULL) {
+            return NULL;
+        }
+
+        token = strtok(NULL, "/");
+        if(token == NULL) { //case 1: it was the last thing
+            return &(get_entry_from_number(currDentry->inode_number)->inode);
+        } 
+        else { //case 2: it was not the last thing
+            currLogEntry = get_entry_from_number(currDentry->inode_number);
+        }
+        
+    }
+
+    return NULL;
+}
+
+// Thomas helper function for printing
+void printInode(struct wfs_inode* inode) {
+    fprintf(debug_log, "Thomas - inode number: %x\n", inode->inode_number);
+    fprintf(debug_log, "Thomas - deleted: %x\n", inode->deleted);
+    fprintf(debug_log, "Thomas - mode: %x\n", inode->mode);
+    fprintf(debug_log, "Thomas - uid: %x\n", inode->uid);
+    fprintf(debug_log, "Thomas - gid: %x\n", inode->gid);
+    fprintf(debug_log, "Thomas - flags: %x\n", inode->flags);
+    fprintf(debug_log, "Thomas - size: %x\n", inode->size);
+    fprintf(debug_log, "Thomas - atime: %x\n", inode->atime);
+    fprintf(debug_log, "Thomas - mtime: %x\n", inode->mtime);
+    fprintf(debug_log, "Thomas - ctime: %x\n", inode->ctime);
+    fprintf(debug_log, "Thomas - links: %x\n", inode->links);
+    fprintf(debug_log, "Thomas - \n");
 }
 
 
-struct wfs_inode* find_inode_by_path(const char* path) {
-    // Open the disk image file
-    FILE *disk = fopen("/", "rb");
-    if (!disk) {
-        perror("Error opening disk image");
-        return NULL;
-    }
-
-    // Read the superblock to find the starting point of the log entries
-    struct wfs_sb sb;
-    if (fread(&sb, sizeof(sb), 1, disk) != 1) {
-        perror("Error reading superblock");
-        fclose(disk);
-        return NULL;
-    }
-
-    // Traverse the log entries to find the inode for the given path
-    fseek(disk, sizeof(struct wfs_sb), SEEK_SET); // Start at the beginning of the log
-    while (ftell(disk) < sb.head) {
-        struct wfs_log_entry entry;
-        if (fread(&entry, sizeof(entry), 1, disk) != 1) {
-            perror("Error reading log entry");
-            break; // or handle the error as needed
-        }
-
-        char *entry_path = get_path_from_log_entry(&entry); 
-        if (entry_path != NULL && strcmp(entry_path, path) == 0) {
-            struct wfs_inode* inode = malloc(sizeof(struct wfs_inode));
-            if (inode != NULL) {
-                *inode = entry.inode;
-            }
-            fclose(disk);
-            return inode; // return a dynamically allocated inode
-        }
-
-        // Move to the next log entry if this one doesn't match
-        // This may involve reading the size of the data part of the log entry
-        // and seeking forward in the file by that amount
-    }
-
-    fclose(disk);
-    return NULL; // Return NULL if the path's inode was not found
-}
-
-
-/* END HELPER FUNCTIONS */
-
-// Define your filesystem operation functions here
 static int wfs_getattr(const char *path, struct stat *stbuf) {
+    fprintf(debug_log, "Debug - getattr called for path: %s\n", path);
     memset(stbuf, 0, sizeof(struct stat));
 
 
     if (strcmp(path, "/") == 0) {
-        stbuf->st_mode = S_IFDIR | 0755;
+        fprintf(debug_log, "Debug - Path is root directory\n");
+        stbuf->st_mode = S_IFDIR;
         stbuf->st_nlink = 2;
     } else {
         // Read the log entries from disk to find the file or directory
@@ -82,12 +141,15 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
 
         // If file/directory not found, return -ENOENT
         // Implement logic to find the inode for the given path
+        fprintf(debug_log, "Debug - Path is not root, searching for inode\n");
         struct wfs_inode *inode = find_inode_by_path(path);
         if (!inode) {
+            fprintf(debug_log, "Debug - Inode not found for path: %s\n", path);
             return -ENOENT;  // No such file or directory
         }
 
         // Fill in the stat structure
+        fprintf(debug_log, "Debug - Inode found for path: %s\n", path);
         stbuf->st_mode = inode->mode;
         stbuf->st_nlink = inode->links;
         stbuf->st_size = inode->size;
@@ -96,11 +158,16 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
         stbuf->st_atime = inode->atime;
         stbuf->st_mtime = inode->mtime;
         stbuf->st_ctime = inode->ctime;
+
+        fprintf(debug_log, "Debug - Filled state structure for path: %s\n", path);
         
     }
+    fprintf(debug_log, "Debug - getattr returning success for path: %s\n", path);
 
     return 0;
 }
+
+
 
 static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
     // Check if the file already exists
@@ -124,7 +191,18 @@ static int wfs_write(const char *path, const char *buf, size_t size, off_t offse
 
 static int wfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
     // Locate the file's inode and its log entry
+    struct wfs_inode *currentInode = find_inode_by_path(path);
+    //fprintf(debug_log, "Current path: %s\n", path);
+    printInode(currentInode);
+
+
+    struct wfs_log_entry * currEntry = get_entry_from_number(currentInode->inode_number);
+    fprintf(debug_log, "Debug - current log entry data: %d and current size: %d\n", currEntry->inode.inode_number, currEntry->inode.size);
+    size = currEntry->inode.size;
+    
     // Read the content into buf
+    memcpy(buf+offset, currEntry->data, sizeof(char)*size);
+    
     return size; // return the number of bytes read or an error code
 }
 
@@ -154,15 +232,66 @@ static struct fuse_operations wfs_oper = {
     // Add other operations (read, write, mkdir, etc.)
 };
 
+
+
+
 int main(int argc, char *argv[]) {
-    // Process arguments and initialize your filesystem structure
-    //need to filter out disk path
+    debug_log = fopen("debug_log.txt", "w");
+    if (!debug_log) {
+        perror("Error opening debug log file");
+        return 1;
+    }
+    fprintf(debug_log, "Debug - Starting main function\n");
 
-    //char* disk_path = argv[argc - 2];
-    char* mount_point = argv[argc - 1];
-    argc -= 1;
-    argv[argc - 1] = mount_point;
-    int result = fuse_main(argc, argv, &wfs_oper, NULL);
+    if (argc < 4) {
+        fprintf(stderr, "usage: %s <disk_image_path> <mount_point>\n", argv[0]);
+        return 1;
+    }
 
+    disk_image_path = argv[argc - 2];
+    fprintf(debug_log, "Debug - Disk image path: %s\n", disk_image_path);
+
+    char *mount_point = argv[argc - 1];
+    fprintf(debug_log, "Debug - Mount point: %s\n", mount_point);
+
+    disk_image = fopen(disk_image_path, "rb+");
+    if (!disk_image) {
+        perror("Unable to open disk image");
+        return 1;
+    }
+
+    fseek(disk_image, 0, SEEK_END);
+    size_t size = ftell(disk_image);
+    fseek(disk_image, 0, SEEK_SET);
+    //fprintf(debug_log, "Debug - size: %ld\n", size);
+    mapped_disk_image_size = size;
+
+    mapped_disk_image = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fileno(disk_image), 0);
+
+
+    fprintf(debug_log, "Debug - Disk image opened successfully\n");
+
+    char* new_argv[argc];
+    for (int i = 0; i < argc - 2; ++i) {
+        new_argv[i] = argv[i];
+    }
+
+    // Adjust arguments for fuse_main
+    new_argv[argc - 2] = mount_point; // Set mount point as the second argument
+    new_argv[argc - 1] = NULL; // Null-terminate argument list
+
+
+    fprintf(debug_log, "Debug - Calling fuse_main\n");
+    int result = fuse_main(argc - 1, new_argv, &wfs_oper, NULL);
+    fprintf(debug_log, "Debug - fuse_main returned %d\n", result);
+
+    fclose(disk_image);
+    fprintf(debug_log, "Debug - Disk image closed\n");
+
+    //munmap(address);
+
+    fclose(debug_log);
+    munmap(mapped_disk_image, size);
+    fclose(disk_image);
     return result;
 }

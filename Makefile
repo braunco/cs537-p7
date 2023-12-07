@@ -25,3 +25,9 @@ clean:
 
 test: mkfs.wfs mount.wfs
 	~cs537-1/tests/P7/start.py
+	
+testl_CB: mkfs.wfs mount.wfs
+	~/private/CS537/Project7/cs537-p7/tests/start.py
+
+testl_TO: mkfs.wfs mount.wfs
+	./tests/start.py
