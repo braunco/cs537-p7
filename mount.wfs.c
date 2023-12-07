@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include "wfs.h"
+#include "time.h"
 
 FILE *disk_image = NULL; // Global file descriptor for the disk image
 const char *disk_image_path;
@@ -66,6 +67,30 @@ struct wfs_dentry* find_dentry(struct wfs_log_entry* entry, const char* name) {
         currDentry++;
     }
     return NULL;
+}
+
+int find_next_free_inode() {
+    struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
+    int head = sb->head;
+    char* currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+
+    int numToReturn = 1;
+    struct wfs_log_entry* currLogEntry;
+
+    while(numToReturn <= 0xFFFFFFFF) {
+        while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size && currAddr - (char*)mapped_disk_image < head) {
+            currLogEntry = (struct wfs_log_entry*)currAddr;
+
+            if(currLogEntry->inode.inode_number == numToReturn && currLogEntry->inode.deleted != 1) {
+                numToReturn++;
+                break;
+            }
+
+            currAddr += sizeof(struct wfs_inode) + currLogEntry->inode.size;
+        }
+        return numToReturn;
+    }
+    return -1;
 }
 
 /* HELPER FUNCTIONS */
@@ -170,9 +195,41 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
 
 
 static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
+    fprintf(debug_log, "CURRENT PATH INSIDE OF WFS_MKNOD: %s\n", path);
     // Check if the file already exists
+    struct wfs_inode *inode = find_inode_by_path(path);
+    if (inode != NULL) {
+        return -EEXIST;
+    }
     // If not, create a new inode and log entry for the file
+    else {
+        struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
+        int head = sb->head;
+        fprintf(debug_log, "\tNOT A SEG FAULT YET\n");
+        struct wfs_log_entry* newLogEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + head);
+        fprintf(debug_log, "\tNOT A SEG FAULT YET\n");
+        struct wfs_inode* newInode = &newLogEntry->inode;
+        int nextInode = find_next_free_inode();
+        fprintf(debug_log, "THIS IS THE NEXT INODE: %d\n", nextInode);
+        printInode(&newLogEntry->inode);
+
+        newInode->inode_number = nextInode;
+        newInode->deleted = 0;
+        newInode->mode = S_IFREG;
+        struct fuse_context * curr_fuse = fuse_get_context();
+        newInode->uid = curr_fuse->uid;
+        newInode->gid = curr_fuse->gid;
+        newInode->flags = 0;
+        newInode->size = 0;
+        newInode->atime = time(NULL);
+        newInode->mtime = time(NULL);
+        newInode->ctime = time(NULL);
+        newInode->links = 1;
+        fprintf(debug_log, "\tNOT A SEG FAULT YET\n");
+    }
     // Append the log entry to the disk
+
+
     // Update the parent directory's log entry to include this new file
     return 0; // or appropriate error code
 }
@@ -193,7 +250,7 @@ static int wfs_read(const char *path, char *buf, size_t size, off_t offset, stru
     // Locate the file's inode and its log entry
     struct wfs_inode *currentInode = find_inode_by_path(path);
     //fprintf(debug_log, "Current path: %s\n", path);
-    printInode(currentInode);
+    //printInode(currentInode);
 
 
     struct wfs_log_entry * currEntry = get_entry_from_number(currentInode->inode_number);
@@ -236,7 +293,7 @@ static struct fuse_operations wfs_oper = {
 
 
 int main(int argc, char *argv[]) {
-    debug_log = fopen("debug_log.txt", "w");
+    debug_log = fopen("debug_log.txt", "a");
     if (!debug_log) {
         perror("Error opening debug log file");
         return 1;
