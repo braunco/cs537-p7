@@ -165,6 +165,34 @@ void printInode(struct wfs_inode* inode) {
     printf("Thomas - \n");
 }
 
+void printDirectoryContents(struct wfs_log_entry* entry) {
+    printf("#####PRINTING DIRECTORY CONTENTS#####\n");
+    int numDentries = entry->inode.size / sizeof(struct wfs_dentry);
+    if(numDentries == 0) {
+        printf("#####END PRINT#####\n");
+        return; //return null if no entries, as cannot have file
+    }
+
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)entry->data;
+    for(int i=0; i<numDentries; i++) {
+        printf("%s: %ld\n", currDentry->name, currDentry->inode_number);
+        currDentry++;
+    }
+    printf("#####END PRINT#####\n");
+}
+
+int copyDentries(struct wfs_log_entry* orig, struct wfs_log_entry* new) { //returns num of dentries present
+    int numDentries = orig->inode.size / sizeof(struct wfs_dentry);
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)orig->data;
+    struct wfs_dentry* newCurrDentry = (struct wfs_dentry*)new->data;
+    for(int i=0; i<numDentries; i++) {
+        memcpy((void*)newCurrDentry, (void*)currDentry, sizeof(struct wfs_dentry));
+        currDentry++;
+        newCurrDentry++;
+    }
+    return numDentries;
+}
+
 
 static int wfs_getattr(const char *path, struct stat *stbuf) {
     fprintf(debug_log, "Debug - getattr called for path: %s\n", path);
@@ -208,33 +236,6 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
     return 0;
 }
 
-void printDirectoryContents(struct wfs_log_entry* entry) {
-    printf("#####PRINTING DIRECTORY CONTENTS#####\n");
-    int numDentries = entry->inode.size / sizeof(struct wfs_dentry);
-    if(numDentries == 0) {
-        printf("#####END PRINT#####\n");
-        return; //return null if no entries, as cannot have file
-    }
-
-    struct wfs_dentry* currDentry = (struct wfs_dentry*)entry->data;
-    for(int i=0; i<numDentries; i++) {
-        printf("%s: %ld\n", currDentry->name, currDentry->inode_number);
-        currDentry++;
-    }
-    printf("#####END PRINT#####\n");
-}
-
-int copyDentries(struct wfs_log_entry* orig, struct wfs_log_entry* new) { //returns num of dentries present
-    int numDentries = orig->inode.size / sizeof(struct wfs_dentry);
-    struct wfs_dentry* currDentry = (struct wfs_dentry*)orig->data;
-    struct wfs_dentry* newCurrDentry = (struct wfs_dentry*)new->data;
-    for(int i=0; i<numDentries; i++) {
-        memcpy((void*)newCurrDentry, (void*)currDentry, sizeof(struct wfs_dentry));
-        currDentry++;
-        newCurrDentry++;
-    }
-    return numDentries;
-}
 
 //need to change the inode which it updates, not always going to be root
 static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
