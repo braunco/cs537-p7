@@ -236,6 +236,7 @@ int copyDentries(struct wfs_log_entry* orig, struct wfs_log_entry* new) { //retu
     return numDentries;
 }
 
+//need to change the inode which it updates, not always going to be root
 static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
     printf("\t\tCALLED mknod\n");
     fprintf(debug_log, "CURRENT PATH INSIDE OF WFS_MKNOD: %s\n", path);
@@ -252,7 +253,7 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
         struct wfs_inode* newInode = &newLogEntry->inode;
         int nextInode = find_next_free_inode();
         fprintf(debug_log, "THIS IS THE NEXT INODE: %d\n", nextInode);
-        printInode(&newLogEntry->inode);
+        //printInode(&newLogEntry->inode);
 
         newInode->inode_number = nextInode;
         newInode->deleted = 0;
@@ -271,44 +272,69 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
         sb->head += sizeof(struct wfs_inode);
         mapped_disk_image_size += sizeof(struct wfs_inode);
 
-        struct wfs_log_entry* rootLogEntry = get_root_entry();
-        // printf("OLD ROOT ENTRY: \n");
-        // printInode(&rootLogEntry->inode);
-        struct wfs_inode* rootInode = &rootLogEntry->inode;
-        rootInode->deleted = 1;
-    
-        struct wfs_log_entry* newRootEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
-        struct wfs_inode* newRootInode = &newRootEntry->inode;
 
-        //copy over some stuff
-        newRootInode->inode_number = rootInode->inode_number;
-        newRootInode->deleted = 0;
-        newRootInode->mode = rootInode->mode;
-        newRootInode->uid = rootInode->uid;
-        newRootInode->gid = rootInode->gid;
-        newRootInode->flags = rootInode->flags;
-        newRootInode->size = rootInode->size + sizeof(struct wfs_dentry);
-        newRootInode->atime = time(NULL);
-        newRootInode->mtime = time(NULL); //IDK IF THESE 3 SHOULD ALL BE MODIFIED BUT I THINK C FOR SURE
-        newRootInode->ctime = time(NULL); 
-        newRootInode->links = 1;
-
-        int numCurrentDentries = copyDentries(rootLogEntry, newRootEntry);
-        struct wfs_dentry* newDentry = (struct wfs_dentry*)newRootEntry->data;
-        newDentry += (sizeof(struct wfs_dentry) * numCurrentDentries);
-        
+        //find the correct directory entry
         char* pathCopy = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
+        char* dirPath = malloc(sizeof(char*) * MAX_FILE_NAME_LEN);
         memset(pathCopy, 0, MAX_FILE_NAME_LEN);
+        memset(dirPath, 0, MAX_FILE_NAME_LEN);
         memcpy(pathCopy, path, MAX_FILE_NAME_LEN);
         char* token = strtok(pathCopy, "/");
         char* last = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
         memset(last, 0, MAX_FILE_NAME_LEN);
         memcpy(last, token, MAX_FILE_NAME_LEN);
+        int dirIndex = 1;
+        dirPath[0] = '/';
         while(token) {
+            char* temp = strdup(token);
             memset(last, 0, MAX_FILE_NAME_LEN);
             memcpy(last, token, MAX_FILE_NAME_LEN);
             token = strtok(NULL, "/");
+            if(token != NULL) {
+                for(int i=0; i<strlen(temp); i++) {
+                    dirPath[dirIndex++] = temp[i];
+                }
+                dirPath[dirIndex++] = '/';
+            }
+            free(temp);
         }
+        if(dirIndex > 1) {
+            dirPath[dirIndex - 1] = '\0';
+        }
+        printf("RECONSTRUCTED DIR PATH: %s\n", dirPath);
+        
+        struct wfs_log_entry* oldDirEntry;
+        if(strcmp(dirPath, "/") == 0) {
+            printf("ROOT ENTRY FOR LOG\n");
+            oldDirEntry = get_root_entry();
+        }
+        else {
+            int oldDirInodeNumber = find_inode_by_path(dirPath)->inode_number;
+            oldDirEntry = get_entry_from_number(oldDirInodeNumber);
+        }
+        struct wfs_inode* oldDirInode = &oldDirEntry->inode;
+        oldDirInode->deleted = 1;
+    
+        struct wfs_log_entry* newDirEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
+        struct wfs_inode* newDirInode = &newDirEntry->inode;
+
+        //copy over some stuff
+        newDirInode->inode_number = oldDirInode->inode_number;
+        newDirInode->deleted = 0;
+        newDirInode->mode = oldDirInode->mode;
+        newDirInode->uid = oldDirInode->uid;
+        newDirInode->gid = oldDirInode->gid;
+        newDirInode->flags = oldDirInode->flags;
+        newDirInode->size = oldDirInode->size + sizeof(struct wfs_dentry);
+        newDirInode->atime = time(NULL);
+        newDirInode->mtime = time(NULL); //IDK IF THESE 3 SHOULD ALL BE MODIFIED BUT I THINK C FOR SURE
+        newDirInode->ctime = time(NULL); 
+        newDirInode->links = 1;
+
+        int numCurrentDentries = copyDentries(oldDirEntry, newDirEntry);
+        struct wfs_dentry* newDentry = (struct wfs_dentry*)newDirEntry->data;
+        newDentry += (sizeof(struct wfs_dentry) * numCurrentDentries);
+        
         memcpy(newDentry->name, last, MAX_FILE_NAME_LEN);
         free(last);
         free(pathCopy);
