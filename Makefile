@@ -32,3 +32,10 @@ testl_CB: mkfs.wfs mount.wfs
 testl_TO: mkfs.wfs mount.wfs
 	./tests/start.py
 
+cltest: 
+	rm disk
+
+mtest: mkfs.wfs mount.wfs
+	create_disk.sh
+	mkfs.wfs disk
+	mount.wfs -f -s disk mnt

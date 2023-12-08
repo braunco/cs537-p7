@@ -58,10 +58,10 @@ struct wfs_dentry* find_dentry(struct wfs_log_entry* entry, const char* name) {
 
     struct wfs_dentry* currDentry = (struct wfs_dentry*)entry->data;
     for(int i=0; i<numDentries; i++) {
-        printf("\tGoing through dentry#%d\n", i);
-        printf("\tComparing %s with %s...\n", currDentry->name, name);
+        //printf("\tGoing through dentry#%d\n", i);
+        //printf("\tComparing %s with %s...\n", currDentry->name, name);
         if(strcmp(currDentry->name, name) == 0) { //if this dentry matches path token we are looking for.
-            printf("\t\tMatched with inode #%d\n", get_entry_from_number(currDentry->inode_number)->inode.inode_number);
+            //printf("\t\tMatched with inode #%d\n", get_entry_from_number(currDentry->inode_number)->inode.inode_number);
             return currDentry;
         }
         currDentry++;
@@ -111,7 +111,7 @@ struct wfs_inode* find_inode_by_path(const char* path)
 
     char* token = strtok(pathCopy, "/");
     while(token) {
-        printf("In while Loop!\n");
+        //printf("In while Loop!\n");
         int numDentries = currLogEntry->inode.size / sizeof(struct wfs_dentry);
         if(numDentries == 0) return NULL; //return null if no entries, as cannot have file
 
@@ -135,7 +135,7 @@ struct wfs_inode* find_inode_by_path(const char* path)
 }
 
 // Thomas helper function for printing
-void printInode(struct wfs_inode* inode) {
+void fprintInode(struct wfs_inode* inode) {
     fprintf(debug_log, "Thomas - inode number: %x\n", inode->inode_number);
     fprintf(debug_log, "Thomas - deleted: %x\n", inode->deleted);
     fprintf(debug_log, "Thomas - mode: %x\n", inode->mode);
@@ -150,9 +150,25 @@ void printInode(struct wfs_inode* inode) {
     fprintf(debug_log, "Thomas - \n");
 }
 
+void printInode(struct wfs_inode* inode) {
+    printf("Thomas - inode number: %x\n", inode->inode_number);
+    printf("Thomas - deleted: %x\n", inode->deleted);
+    printf("Thomas - mode: %x\n", inode->mode);
+    printf("Thomas - uid: %x\n", inode->uid);
+    printf("Thomas - gid: %x\n", inode->gid);
+    printf("Thomas - flags: %x\n", inode->flags);
+    printf("Thomas - size: %x\n", inode->size);
+    printf("Thomas - atime: %x\n", inode->atime);
+    printf("Thomas - mtime: %x\n", inode->mtime);
+    printf("Thomas - ctime: %x\n", inode->ctime);
+    printf("Thomas - links: %x\n", inode->links);
+    printf("Thomas - \n");
+}
+
 
 static int wfs_getattr(const char *path, struct stat *stbuf) {
     fprintf(debug_log, "Debug - getattr called for path: %s\n", path);
+    printf("\t\tCALLED getattr path: %s\n", path);
     memset(stbuf, 0, sizeof(struct stat));
 
 
@@ -192,9 +208,36 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
     return 0;
 }
 
+void printDirectoryContents(struct wfs_log_entry* entry) {
+    printf("#####PRINTING DIRECTORY CONTENTS#####\n");
+    int numDentries = entry->inode.size / sizeof(struct wfs_dentry);
+    if(numDentries == 0) {
+        printf("#####END PRINT#####\n");
+        return; //return null if no entries, as cannot have file
+    }
 
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)entry->data;
+    for(int i=0; i<numDentries; i++) {
+        printf("%s: %ld\n", currDentry->name, currDentry->inode_number);
+        currDentry++;
+    }
+    printf("#####END PRINT#####\n");
+}
+
+int copyDentries(struct wfs_log_entry* orig, struct wfs_log_entry* new) { //returns num of dentries present
+    int numDentries = orig->inode.size / sizeof(struct wfs_dentry);
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)orig->data;
+    struct wfs_dentry* newCurrDentry = (struct wfs_dentry*)new->data;
+    for(int i=0; i<numDentries; i++) {
+        memcpy((void*)newCurrDentry, (void*)currDentry, sizeof(struct wfs_dentry));
+        currDentry++;
+        newCurrDentry++;
+    }
+    return numDentries;
+}
 
 static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
+    printf("\t\tCALLED mknod\n");
     fprintf(debug_log, "CURRENT PATH INSIDE OF WFS_MKNOD: %s\n", path);
     // Check if the file already exists
     struct wfs_inode *inode = find_inode_by_path(path);
@@ -205,9 +248,7 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
     else {
         struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
         int head = sb->head;
-        fprintf(debug_log, "\tNOT A SEG FAULT YET\n");
         struct wfs_log_entry* newLogEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + head);
-        fprintf(debug_log, "\tNOT A SEG FAULT YET\n");
         struct wfs_inode* newInode = &newLogEntry->inode;
         int nextInode = find_next_free_inode();
         fprintf(debug_log, "THIS IS THE NEXT INODE: %d\n", nextInode);
@@ -215,7 +256,7 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
         newInode->inode_number = nextInode;
         newInode->deleted = 0;
-        newInode->mode = S_IFREG;
+        newInode->mode = mode;
         struct fuse_context * curr_fuse = fuse_get_context();
         newInode->uid = curr_fuse->uid;
         newInode->gid = curr_fuse->gid;
@@ -225,28 +266,78 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
         newInode->mtime = time(NULL);
         newInode->ctime = time(NULL);
         newInode->links = 1;
-        fprintf(debug_log, "\tNOT A SEG FAULT YET\n");
+
+        //printInode(&newLogEntry->inode);
+        sb->head += sizeof(struct wfs_inode);
+        mapped_disk_image_size += sizeof(struct wfs_inode);
+
+        struct wfs_log_entry* rootLogEntry = get_root_entry();
+        // printf("OLD ROOT ENTRY: \n");
+        // printInode(&rootLogEntry->inode);
+        struct wfs_inode* rootInode = &rootLogEntry->inode;
+        rootInode->deleted = 1;
+    
+        struct wfs_log_entry* newRootEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
+        struct wfs_inode* newRootInode = &newRootEntry->inode;
+
+        //copy over some stuff
+        newRootInode->inode_number = rootInode->inode_number;
+        newRootInode->deleted = 0;
+        newRootInode->mode = rootInode->mode;
+        newRootInode->uid = rootInode->uid;
+        newRootInode->gid = rootInode->gid;
+        newRootInode->flags = rootInode->flags;
+        newRootInode->size = rootInode->size + sizeof(struct wfs_dentry);
+        newRootInode->atime = time(NULL);
+        newRootInode->mtime = time(NULL); //IDK IF THESE 3 SHOULD ALL BE MODIFIED BUT I THINK C FOR SURE
+        newRootInode->ctime = time(NULL); 
+        newRootInode->links = 1;
+
+        int numCurrentDentries = copyDentries(rootLogEntry, newRootEntry);
+        struct wfs_dentry* newDentry = (struct wfs_dentry*)newRootEntry->data;
+        newDentry += (sizeof(struct wfs_dentry) * numCurrentDentries);
+        
+        char* pathCopy = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
+        memset(pathCopy, 0, MAX_FILE_NAME_LEN);
+        memcpy(pathCopy, path, MAX_FILE_NAME_LEN);
+        char* token = strtok(pathCopy, "/");
+        char* last = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
+        memset(last, 0, MAX_FILE_NAME_LEN);
+        memcpy(last, token, MAX_FILE_NAME_LEN);
+        while(token) {
+            memset(last, 0, MAX_FILE_NAME_LEN);
+            memcpy(last, token, MAX_FILE_NAME_LEN);
+            token = strtok(NULL, "/");
+        }
+        memcpy(newDentry->name, last, MAX_FILE_NAME_LEN);
+        free(last);
+        free(pathCopy);
+        newDentry->inode_number = nextInode;
+
+        sb->head += sizeof(struct wfs_dentry);
+        mapped_disk_image_size += sizeof(struct wfs_inode);
     }
     // Append the log entry to the disk
-
-
     // Update the parent directory's log entry to include this new file
     return 0; // or appropriate error code
 }
 
 static int wfs_mkdir(const char *path, mode_t mode) {
+    //printf("\t\tCALLED mkdir\n");
     // Similar to wfs_mknod, but for directories
     // Remember to set the mode of the inode to indicate a directory (S_IFDIR)
     return 0; // or appropriate error code
 }
 
 static int wfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    //printf("\t\tCALLED write\n");
     // Locate the file's inode using the path
     // Append a new log entry with the updated file content
     return size; // return the number of bytes written or an error code
 }
 
 static int wfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    //printf("\t\tCALLED read\n");
     // Locate the file's inode and its log entry
     struct wfs_inode *currentInode = find_inode_by_path(path);
     //fprintf(debug_log, "Current path: %s\n", path);
@@ -264,12 +355,14 @@ static int wfs_read(const char *path, char *buf, size_t size, off_t offset, stru
 }
 
 static int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+    //printf("\t\tCALLED readdir\n");
     // Locate the directory's inode and its log entry
     // For each entry in the directory, use filler() to add it to the list
     return 0; // or appropriate error code
 }
 
 static int wfs_unlink(const char *path) {
+    //printf("\t\tCALLED unlink\n");
     // Locate the file's inode
     // Mark the file's inode as deleted in a new log entry
     // Update the parent directory's log entry to remove this file
