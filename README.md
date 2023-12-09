@@ -265,3 +265,12 @@ Again for inspecting contents of the disk image, after mounting has taken place.
 * `/usr/include/asm-generic/errno-base.h`
 * `xxd -e -g 4 disk`
 
+
+# I utilized ChatGPT for various implementations of this program. The link to our conversation is located here
+* https://chat.openai.com/c/132ca350-9ffd-4662-9f8a-e5ca8072d1a3
+
+Thomas and Connor have implemented the various functions of the mounts.wfs.c file including the getattr, mknod, mkdir, write, read, readdir, and unlink. Some of the helper functions that we created for debugging were the printFilesystemContent, and printInode in order to see the current entry of the inode and the filesystem to see if the updates we were making were correct. Additionally, our program employs many helper functions that take on various aspect of the searching and creation process of the new dentries and inodes. Some of these include get_root_entry(), get_entry_from_number(), find_dentry(), find_next_free_inode(), find_inode_by_path(), copyDentries(), copyDentriesExcept().
+
+The files that we will be turning in are mkfs.wfs.c, mounts.wfs.c, wfs.h, and this README file.
+
+Program by: Thomas Ochalek & Connor Braun
