@@ -93,24 +93,33 @@ struct wfs_dentry* find_dentry(struct wfs_log_entry* entry, const char* name) {
 
 int find_next_free_inode() {
     struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
-    int head = sb->head;
-    char* currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+    char* currAddr;// = (char*)mapped_disk_image + sizeof(struct wfs_sb);
 
     int numToReturn = 1;
     struct wfs_log_entry* currLogEntry;
+    struct wfs_inode* currInode;
+    int bad;
 
     while(numToReturn <= 0xFFFFFFFF) {
-        while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size && currAddr - (char*)mapped_disk_image < head) {
+        bad = 0;
+        currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+        while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size && currAddr - (char*)mapped_disk_image < sb->head) {
             currLogEntry = (struct wfs_log_entry*)currAddr;
+            currInode = &currLogEntry->inode;  
 
-            if(currLogEntry->inode.inode_number == numToReturn && currLogEntry->inode.deleted != 1) {
+            if(currInode->inode_number == numToReturn && currInode->deleted == 0) {
+                //not deleted and inode exists, cant use this number. move on to next number
                 numToReturn++;
+                bad = 1;
                 break;
             }
 
             currAddr += sizeof(struct wfs_inode) + currLogEntry->inode.size;
         }
-        return numToReturn;
+        if(bad == 0) {
+            return numToReturn;
+        }
+
     }
     return -1;
 }
@@ -277,6 +286,7 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
         struct wfs_log_entry* newLogEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
         struct wfs_inode* newInode = &newLogEntry->inode;
         int nextInode = find_next_free_inode();
+        printf("NEXT FREE INODE: %d\n", nextInode);
         fprintf(debug_log, "THIS IS THE NEXT INODE: %d\n", nextInode);
 
         newInode->inode_number = nextInode;
@@ -366,6 +376,10 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
         sb->head += newDirInode->size + sizeof(struct wfs_log_entry);
         mapped_disk_image_size += newDirInode->size + sizeof(struct wfs_log_entry);
     }
+
+    //printf("Filesystem after calling mknod on path %s:\n", path);
+    //printFilesystemContent(path);
+
     // Append the log entry to the disk
     // Update the parent directory's log entry to include this new file
     return 0; // or appropriate error code
