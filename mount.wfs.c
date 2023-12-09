@@ -330,8 +330,8 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
 
         //find the correct directory entry
-        char* pathCopy = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
-        char* dirPath = malloc(sizeof(char*) * MAX_FILE_NAME_LEN);
+        char* pathCopy = malloc(sizeof(char) * MAX_PATH_LEN);
+        char* dirPath = malloc(sizeof(char*) * MAX_PATH_LEN);
         memset(pathCopy, 0, MAX_FILE_NAME_LEN);
         memset(dirPath, 0, MAX_FILE_NAME_LEN);
         memcpy(pathCopy, path, MAX_FILE_NAME_LEN);
@@ -445,9 +445,33 @@ static int wfs_read(const char *path, char *buf, size_t size, off_t offset, stru
 }
 
 static int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-    //printf("\t\tCALLED readdir\n");
+    //printf("\t\tCALLED readdir for path: %s\n", path);
     // Locate the directory's inode and its log entry
+
+    struct wfs_inode* dirInode;
+    struct wfs_log_entry* dirEntry;
+    if(strcmp(path, "/") == 0) {
+        dirEntry = get_root_entry();
+        dirInode = &dirEntry->inode;
+    }
+    else {
+        dirInode = find_inode_by_path(path);
+        dirEntry = get_entry_from_number(dirInode->inode_number);
+    }
+
+    if(dirInode == NULL) {
+        return -ENOENT;
+    }
+
+
     // For each entry in the directory, use filler() to add it to the list
+    int numDentries = dirInode->size / sizeof(struct wfs_dentry);
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)dirEntry->data;
+    for(int i=0; i<numDentries; i++) {
+        filler(buf, currDentry->name, NULL, 0);
+
+        currDentry++;
+    }
     return 0; // or appropriate error code
 }
 
@@ -463,8 +487,8 @@ static int wfs_unlink(const char *path) {
     // Update the parent directory's log entry to remove this file
     //first find parent directory log
     //find the correct directory entry
-    char* pathCopy = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
-    char* dirPath = malloc(sizeof(char*) * MAX_FILE_NAME_LEN);
+    char* pathCopy = malloc(sizeof(char) * MAX_PATH_LEN);
+    char* dirPath = malloc(sizeof(char*) * MAX_PATH_LEN);
     memset(pathCopy, 0, MAX_FILE_NAME_LEN);
     memset(dirPath, 0, MAX_FILE_NAME_LEN);
     memcpy(pathCopy, path, MAX_FILE_NAME_LEN);

@@ -5,6 +5,7 @@
 #define MOUNT_WFS_H_
 
 #define MAX_FILE_NAME_LEN 32
+#define MAX_PATH_LEN 128
 #define WFS_MAGIC 0xdeadbeef
 
 //adding
