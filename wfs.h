@@ -7,12 +7,12 @@
 #define MAX_FILE_NAME_LEN 32
 #define WFS_MAGIC 0xdeadbeef
 
-// adding
+//adding
 #ifndef S_IFDIR
 #define S_IFDIR 0x41ed
 #define S_IFREG 0x81b4
-#define HARD_LINK 0x1
 #endif
+#define HARD_LINK 0x1
 
 struct wfs_sb {
     uint32_t magic;

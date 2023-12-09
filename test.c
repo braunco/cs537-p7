@@ -1,16 +1,30 @@
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#define MAX_FILE_NAME_LEN 32
+#include <sys/stat.h>
+#include <sys/types.h>
 
 int main() {
-  FILE *fp;
-  fp = fopen("mnt/data1.txt", "w");
-  if (fp < 0)
-    return 0;
+   
+    const char *path = "mnt/data2";
 
-  else {
-    fclose(fp);
-    return 1;
-  }
+    int status = mkdir(path, S_IRWXU);
+
+    if (status == 0) {
+        printf("Directory created inside root successfully.\n");
+    } else {
+        perror("Unable to create directory");
+        return 1;
+    }
+
+    // path = "mnt/data2/data3";
+
+    // status = mkdir(path, S_IRWXU);
+
+    // if (status == 0) {
+    //     printf("Directory created inside data successfully.\n");
+    // } else {
+    //     perror("Unable to create directory");
+    //     return 1;
+    // }
+
+    return 0;
 }

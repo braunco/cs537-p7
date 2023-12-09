@@ -16,12 +16,34 @@ size_t mapped_disk_image_size;
 
 /* HELPER FUNCTIONS */
 
+void printInode(struct wfs_inode* inode);
+void printDirectoryContents(struct wfs_log_entry *entry);
+
+void printFilesystemContent(const char* title) {
+    printf("PRINTING FILESYSTEM %s\n", title);
+    struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
+    char* currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+    struct wfs_log_entry* currEntry;// = (struct wfs_log_entry*)currAddr;
+    while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size && currAddr - (char*)mapped_disk_image < sb->head) {
+        currEntry = (struct wfs_log_entry*)currAddr;
+
+        printf("log entry addr: %p\n", (void*)currEntry);
+        printInode(&currEntry->inode);
+        if(currEntry->inode.mode == 0x41ed) { //for now only prints if is root
+            printDirectoryContents(currEntry);
+        }
+
+        currAddr += sizeof(struct wfs_inode) + currEntry->inode.size;
+    }
+    printf("END PRINT FILESYSTEM %s\n", title);
+}
 
 struct wfs_log_entry* get_root_entry() {
     char* currAddr = (char*)mapped_disk_image + sizeof(struct wfs_sb);
+    struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
     struct wfs_log_entry* currLogEntry = (struct wfs_log_entry*)currAddr;
     struct wfs_log_entry* actualRootEntry = NULL;
-    while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size) {
+    while(currAddr - (char*)mapped_disk_image < mapped_disk_image_size && currAddr - (char*)mapped_disk_image < sb->head) {
         currLogEntry = (struct wfs_log_entry*)currAddr;
 
         if(currLogEntry->inode.inode_number == 0 && currLogEntry->inode.mode == 0x41ed) {
@@ -102,9 +124,11 @@ struct wfs_inode* find_inode_by_path(const char* path)
     repeat
     */
 
+    //printFilesystemContent(path);
+
     //need to find newest root. iterate backwards
     struct wfs_log_entry* currLogEntry = get_root_entry();
-
+    //printf("NOT SEGFAULT YET, PATH: %s\n", path);
     char pathCopy[strlen(path)];
     strcpy(pathCopy, path);
 
@@ -196,7 +220,7 @@ int copyDentries(struct wfs_log_entry* orig, struct wfs_log_entry* new) { //retu
 
 static int wfs_getattr(const char *path, struct stat *stbuf) {
     fprintf(debug_log, "Debug - getattr called for path: %s\n", path);
-    printf("\t\tCALLED getattr path: %s\n", path);
+    //printf("CALLED getattr path: %s\n", path);
     memset(stbuf, 0, sizeof(struct stat));
 
 
@@ -214,6 +238,7 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
         struct wfs_inode *inode = find_inode_by_path(path);
         if (!inode) {
             fprintf(debug_log, "Debug - Inode not found for path: %s\n", path);
+            //printf("Debug - Inode not found for path: %s\n", path);
             return -ENOENT;  // No such file or directory
         }
 
@@ -239,7 +264,7 @@ static int wfs_getattr(const char *path, struct stat *stbuf) {
 
 //need to change the inode which it updates, not always going to be root
 static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
-    printf("\t\tCALLED mknod\n");
+    //printf("CALLED mknod for %s with mode: %x\n", path, mode);
     fprintf(debug_log, "CURRENT PATH INSIDE OF WFS_MKNOD: %s\n", path);
     // Check if the file already exists
     struct wfs_inode *inode = find_inode_by_path(path);
@@ -249,12 +274,10 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
     // If not, create a new inode and log entry for the file
     else {
         struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
-        int head = sb->head;
-        struct wfs_log_entry* newLogEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + head);
+        struct wfs_log_entry* newLogEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
         struct wfs_inode* newInode = &newLogEntry->inode;
         int nextInode = find_next_free_inode();
         fprintf(debug_log, "THIS IS THE NEXT INODE: %d\n", nextInode);
-        //printInode(&newLogEntry->inode);
 
         newInode->inode_number = nextInode;
         newInode->deleted = 0;
@@ -302,13 +325,13 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
         if(dirIndex > 1) {
             dirPath[dirIndex - 1] = '\0';
         }
-        printf("RECONSTRUCTED DIR PATH: %s\n", dirPath);
-        
+        //printf("RECONSTRUCTED DIR PATH: %s\n", dirPath);
         struct wfs_log_entry* oldDirEntry;
         if(strcmp(dirPath, "/") == 0) {
-            printf("ROOT ENTRY FOR LOG\n");
+            //printf("ROOT ENTRY FOR LOG\n");
             oldDirEntry = get_root_entry();
         }
+        //END ERROR ZONE
         else {
             int oldDirInodeNumber = find_inode_by_path(dirPath)->inode_number;
             oldDirEntry = get_entry_from_number(oldDirInodeNumber);
@@ -334,15 +357,14 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
         int numCurrentDentries = copyDentries(oldDirEntry, newDirEntry);
         struct wfs_dentry* newDentry = (struct wfs_dentry*)newDirEntry->data;
-        newDentry += (sizeof(struct wfs_dentry) * numCurrentDentries);
-        
+        newDentry += numCurrentDentries;
         memcpy(newDentry->name, last, MAX_FILE_NAME_LEN);
         free(last);
         free(pathCopy);
         newDentry->inode_number = nextInode;
 
-        sb->head += sizeof(struct wfs_dentry);
-        mapped_disk_image_size += sizeof(struct wfs_inode);
+        sb->head += newDirInode->size + sizeof(struct wfs_log_entry);
+        mapped_disk_image_size += newDirInode->size + sizeof(struct wfs_log_entry);
     }
     // Append the log entry to the disk
     // Update the parent directory's log entry to include this new file
@@ -350,10 +372,15 @@ static int wfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 }
 
 static int wfs_mkdir(const char *path, mode_t mode) {
-    //printf("\t\tCALLED mkdir\n");
+    //printf("CALLED MKDIR for path: %s, mode: %x\n", path, mode);
     // Similar to wfs_mknod, but for directories
     // Remember to set the mode of the inode to indicate a directory (S_IFDIR)
-    return 0; // or appropriate error code
+    int retVal = wfs_mknod(path, S_IFDIR | (mode & 0777), 0);
+
+    
+
+
+    return retVal; // or appropriate error code
 }
 
 static int wfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
