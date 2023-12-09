@@ -226,6 +226,28 @@ int copyDentries(struct wfs_log_entry* orig, struct wfs_log_entry* new) { //retu
     return numDentries;
 }
 
+int copyDentriesExcept(struct wfs_log_entry* orig, struct wfs_log_entry* new, int except) {
+    int numDentries = orig->inode.size / sizeof(struct wfs_dentry);
+    struct wfs_dentry* currDentry = (struct wfs_dentry*)orig->data;
+    struct wfs_dentry* newCurrDentry = (struct wfs_dentry*)new->data;
+    int foundExcept = 0;
+    for(int i=0; i<numDentries; i++) {
+        if(currDentry->inode_number != except) {
+            memcpy((void*)newCurrDentry, (void*)currDentry, sizeof(struct wfs_dentry));
+            newCurrDentry++;
+            currDentry++;
+        }
+        else {
+            foundExcept = 1;
+            currDentry++;
+        }
+    }
+    if(foundExcept == 0) {
+        return -1;
+    }
+    return numDentries - 1;
+}
+
 
 static int wfs_getattr(const char *path, struct stat *stbuf) {
     fprintf(debug_log, "Debug - getattr called for path: %s\n", path);
@@ -431,9 +453,86 @@ static int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_
 
 static int wfs_unlink(const char *path) {
     //printf("\t\tCALLED unlink\n");
+    struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
     // Locate the file's inode
+    struct wfs_inode* inodeToDelete = find_inode_by_path(path); //dont need tro check if exists or not, since getattr called first by default
+
     // Mark the file's inode as deleted in a new log entry
+    inodeToDelete->deleted = 1;
+
     // Update the parent directory's log entry to remove this file
+    //first find parent directory log
+    //find the correct directory entry
+    char* pathCopy = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
+    char* dirPath = malloc(sizeof(char*) * MAX_FILE_NAME_LEN);
+    memset(pathCopy, 0, MAX_FILE_NAME_LEN);
+    memset(dirPath, 0, MAX_FILE_NAME_LEN);
+    memcpy(pathCopy, path, MAX_FILE_NAME_LEN);
+    char* token = strtok(pathCopy, "/");
+    char* last = malloc(sizeof(char) * MAX_FILE_NAME_LEN);
+    memset(last, 0, MAX_FILE_NAME_LEN);
+    memcpy(last, token, MAX_FILE_NAME_LEN);
+    int dirIndex = 1;
+    dirPath[0] = '/';
+    while(token) {
+        char* temp = strdup(token);
+        memset(last, 0, MAX_FILE_NAME_LEN);
+        memcpy(last, token, MAX_FILE_NAME_LEN);
+        token = strtok(NULL, "/");
+        if(token != NULL) {
+            for(int i=0; i<strlen(temp); i++) {
+                dirPath[dirIndex++] = temp[i];
+            }
+            dirPath[dirIndex++] = '/';
+        }
+        free(temp);
+    }
+    if(dirIndex > 1) {
+        dirPath[dirIndex - 1] = '\0';
+    }
+    printf("RECONSTRUCTED DIR PATH: %s\n", dirPath);
+    struct wfs_log_entry* oldDirEntry;
+    if(strcmp(dirPath, "/") == 0) {
+        //printf("ROOT ENTRY FOR LOG\n");
+        oldDirEntry = get_root_entry();
+    }
+    //END ERROR ZONE
+    else {
+        int oldDirInodeNumber = find_inode_by_path(dirPath)->inode_number;
+        oldDirEntry = get_entry_from_number(oldDirInodeNumber);
+    }
+    struct wfs_inode* oldDirInode = &oldDirEntry->inode;
+    oldDirInode->deleted = 1;
+
+    //make new directory inode
+    struct wfs_log_entry* newDirEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
+    struct wfs_inode* newDirInode = &newDirEntry->inode;
+
+    //copy over some stuff
+    newDirInode->inode_number = oldDirInode->inode_number;
+    newDirInode->deleted = 0;
+    newDirInode->mode = oldDirInode->mode;
+    newDirInode->uid = oldDirInode->uid;
+    newDirInode->gid = oldDirInode->gid;
+    newDirInode->flags = oldDirInode->flags;
+    newDirInode->size = oldDirInode->size - sizeof(struct wfs_dentry);
+    newDirInode->atime = time(NULL);
+    newDirInode->mtime = time(NULL); //IDK IF THESE 3 SHOULD ALL BE MODIFIED BUT I THINK C FOR SURE
+    newDirInode->ctime = time(NULL); 
+    newDirInode->links = 1;
+
+    int numCurrentDentries = copyDentriesExcept(oldDirEntry, newDirEntry, inodeToDelete->inode_number);
+    if(numCurrentDentries < 0) {
+        printf("numCurrentDentries: %d\n", numCurrentDentries);
+    }
+    free(last);
+    free(pathCopy);
+
+    sb->head += newDirInode->size + sizeof(struct wfs_log_entry);
+    mapped_disk_image_size += newDirInode->size + sizeof(struct wfs_log_entry);
+
+    printFilesystemContent("AFTER DELETION");
+
     return 0; // or appropriate error code
 }
 
