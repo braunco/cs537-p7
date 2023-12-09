@@ -422,7 +422,48 @@ static int wfs_mkdir(const char *path, mode_t mode) {
 static int wfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
     //printf("\t\tCALLED write\n");
     // Locate the file's inode using the path
+    struct wfs_inode* fileInode = find_inode_by_path(path);
+    if(fileInode == NULL) {
+        return -ENOENT;
+    }
+    struct wfs_log_entry* fileEntry = get_entry_from_number(fileInode->inode_number);
+    //invalidate old one
+    fileInode->deleted = 1;
     // Append a new log entry with the updated file content
+    struct wfs_sb* sb = (struct wfs_sb*)mapped_disk_image;
+    struct wfs_log_entry* newEntry = (struct wfs_log_entry*)((char*)mapped_disk_image + sb->head);
+    struct wfs_inode* newInode = &newEntry->inode;
+    //copy over inode data
+    newInode->inode_number = fileInode->inode_number;
+    newInode->deleted = 0;
+    newInode->mode = fileInode->mode;
+    newInode->uid = fileInode->uid;
+    newInode->gid = fileInode->gid;
+    newInode->flags = fileInode->flags;
+    newInode->atime = time(NULL);
+    newInode->ctime = time(NULL);
+    newInode->mtime = time(NULL);
+    //have to do size after copied over 
+
+    //copy over data
+    memcpy((void*)newEntry->data, (void*)fileEntry->data, fileInode->size);
+    //write new data to file
+    char* newData = newEntry->data;
+    newData += offset;
+    memcpy(newData, buf, size);
+
+    //compute new size
+    unsigned int newWriteSize = (newData + size) - newEntry->data;
+    if(newWriteSize > fileInode->size) {
+        newInode->size = newWriteSize;
+    } else {
+        newInode->size = fileInode->size;
+    }
+
+    sb->head += sizeof(struct wfs_inode) + newInode->size;
+    mapped_disk_image_size += sizeof(struct wfs_inode) + newInode->size;
+
+
     return size; // return the number of bytes written or an error code
 }
 
